@@ -47,6 +47,16 @@
         .color-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
         .totals-row { font-weight: 700; background: #f8f9fa; border-top: 2px solid #dee2e6; }
         .sort-arrow { font-size: 10px; margin-left: 4px; opacity: 0.5; }
+        .metric-row { display: flex; align-items: flex-end; gap: 6px; }
+        .help-btn { width: 22px; height: 22px; border-radius: 50%; border: 1px solid #adb5bd; background: white; color: #6c757d; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-bottom: 2px; }
+        .help-btn:hover { background: #e9ecef; color: #333; }
+        .metric-tooltip { display: none; position: absolute; z-index: 100; background: white; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); padding: 16px 20px; max-width: 420px; font-size: 13px; line-height: 1.6; color: #333; }
+        .metric-tooltip.visible { display: block; }
+        .metric-tooltip h4 { margin: 0 0 8px 0; font-size: 14px; color: #1f77b4; }
+        .metric-tooltip p { margin: 0 0 6px 0; }
+        .metric-tooltip code { background: #f1f3f5; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+        .metric-tooltip .close-tip { position: absolute; top: 8px; right: 12px; cursor: pointer; font-size: 16px; color: #adb5bd; }
+        .metric-tooltip .close-tip:hover { color: #333; }
         .view-switcher { display: flex; gap: 8px; margin-bottom: 16px; }
         .view-btn { padding: 8px 16px; border: 1px solid #ced4da; border-radius: 6px; background: white; cursor: pointer; }
         .view-btn.active { background: #1f77b4; color: white; border-color: #1f77b4; }
@@ -62,13 +72,17 @@
             <div class="controls-row">
                 <div class="control-group">
                     <label>Метрика</label>
-                    <select id="metric" onchange="updateChart()">
-                        <option value="revenue" selected>Выручка</option>
-                        <option value="growth_pct">Рост к пред. неделе (%)</option>
-                        <option value="growth_index">Индекс роста (%)</option>
-                        <option value="cumulative">Кумулятивная сумма</option>
-                        <option value="moving_avg">Скользящее среднее (4 нед)</option>
-                    </select>
+                    <div class="metric-row">
+                        <select id="metric" onchange="updateChart()">
+                            <option value="revenue" selected>Выручка</option>
+                            <option value="growth_pct">Рост к пред. неделе (%)</option>
+                            <option value="growth_index">Индекс роста (%)</option>
+                            <option value="cumulative">Кумулятивная сумма</option>
+                            <option value="moving_avg">Скользящее среднее (4 нед)</option>
+                        </select>
+                        <button class="help-btn" onclick="toggleMetricHelp(event)">?</button>
+                    </div>
+                    <div id="metricTooltip" class="metric-tooltip"></div>
                 </div>
                 <div class="control-group">
                     <label>Недели с</label>
@@ -143,6 +157,49 @@ function toggleLabels() {
         Plotly.relayout('chart', { annotations: showLabels ? lastAnnotations : [] });
     }
 }
+
+const METRIC_HELP = {
+    revenue: {
+        title: 'Выручка',
+        text: 'Абсолютное значение выручки магазина за каждую неделю в рублях. Берётся напрямую из исходных данных без преобразований.'
+    },
+    growth_pct: {
+        title: 'Рост к предыдущей неделе (%)',
+        text: 'Процентное изменение выручки относительно предыдущей недели.<br><br><b>Формула:</b> <code>((Текущая - Предыдущая) / Предыдущая) &times; 100%</code><br><br>Положительные значения — рост, отрицательные — падение. Первая неделя не имеет значения, т.к. нет предыдущей.'
+    },
+    growth_index: {
+        title: 'Индекс роста (%)',
+        text: 'Показывает, как изменилась выручка относительно первой недели работы магазина. Первая неделя = 100%.<br><br><b>Формула:</b> <code>(Текущая неделя / Первая неделя) &times; 100%</code><br><br>Если индекс = 150%, значит выручка выросла на 50% от стартовой.'
+    },
+    cumulative: {
+        title: 'Кумулятивная сумма',
+        text: 'Нарастающий итог выручки с первой недели. Каждая точка — сумма всех предыдущих недель включительно.<br><br><b>Формула:</b> <code>Сумма(Неделя 1 + Неделя 2 + ... + Неделя N)</code><br><br>Полезна для оценки общего объёма продаж и сравнения магазинов по суммарной выручке за весь период.'
+    },
+    moving_avg: {
+        title: 'Скользящее среднее (4 недели)',
+        text: 'Среднее значение выручки за последние 4 недели. Сглаживает колебания и показывает общий тренд.<br><br><b>Формула:</b> <code>(Нед N-3 + Нед N-2 + Нед N-1 + Нед N) / 4</code><br><br>Первые 3 недели не имеют значения, т.к. недостаточно данных для окна в 4 недели.'
+    }
+};
+
+function toggleMetricHelp(e) {
+    e.stopPropagation();
+    const tooltip = document.getElementById('metricTooltip');
+    if (tooltip.classList.contains('visible')) {
+        tooltip.classList.remove('visible');
+        return;
+    }
+    const metric = document.getElementById('metric').value;
+    const info = METRIC_HELP[metric];
+    tooltip.innerHTML = `<span class="close-tip" onclick="document.getElementById('metricTooltip').classList.remove('visible')">&times;</span><h4>${info.title}</h4><p>${info.text}</p>`;
+    tooltip.classList.add('visible');
+}
+
+document.addEventListener('click', (e) => {
+    const tooltip = document.getElementById('metricTooltip');
+    if (tooltip && !tooltip.contains(e.target) && !e.target.classList.contains('help-btn')) {
+        tooltip.classList.remove('visible');
+    }
+});
 
 function getSelectedStoreIndices() {
     return Array.from(document.querySelectorAll('#storesCheckboxes input[type="checkbox"]:checked')).map(cb => parseInt(cb.value));
