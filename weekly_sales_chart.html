@@ -117,6 +117,19 @@ const weeklySalesData = {
 
 const COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf','#aec7e8','#ffbb78','#98df8a','#ff9896','#c5b0d5'];
 
+function hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+}
+
+function getStoreColor(storeName) {
+    return COLORS[hashString(storeName) % COLORS.length];
+}
+
 let lastAnnotations = [];
 
 function toggleLabels() {
@@ -366,8 +379,8 @@ function updateChart() {
             if (storeShifts[storeIdx] === undefined) return;
             const storeName = weeklySalesData.stores[storeIdx];
             const shift = storeShifts[storeIdx];
-            const color = COLORS[storeIdx % COLORS.length];
-
+            const color = getStoreColor(storeName);
+            
             const xStore = [], yStore = [];
             for (let j = weekFrom; j <= weekTo; j++) {
                 const val = metricData[storeIdx]?.[j];
@@ -427,7 +440,7 @@ function updateChart() {
         selectedIndices.forEach((storeIdx, i) => {
             const storeName = weeklySalesData.stores[storeIdx];
             const yValues = weekIndices.map(j => metricData[storeIdx]?.[j]);
-            const color = COLORS[storeIdx % COLORS.length];
+            const color = getStoreColor(storeName);
 
             traces.push({
                 x: xValues, y: yValues, mode: 'lines+markers', name: storeName,
