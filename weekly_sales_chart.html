@@ -39,10 +39,14 @@
         #chart { width: 100%; height: 550px; }
         .table-container { overflow-x: auto; margin-top: 20px; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid #e9ecef; }
-        th { background: #f8f9fa; font-weight: 600; cursor: pointer; }
+        th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #e9ecef; white-space: nowrap; }
+        th { background: #f8f9fa; font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; }
+        th:hover { background: #e9ecef; }
         th:first-child, td:first-child { text-align: left; }
-        tr:hover { background: #f8f9fa; }
+        tr:hover { background: #f0f4ff; }
+        .color-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .totals-row { font-weight: 700; background: #f8f9fa; border-top: 2px solid #dee2e6; }
+        .sort-arrow { font-size: 10px; margin-left: 4px; opacity: 0.5; }
         .view-switcher { display: flex; gap: 8px; margin-bottom: 16px; }
         .view-btn { padding: 8px 16px; border: 1px solid #ced4da; border-radius: 6px; background: white; cursor: pointer; }
         .view-btn.active { background: #1f77b4; color: white; border-color: #1f77b4; }
@@ -213,6 +217,7 @@ function showView(view, btn) {
     document.getElementById('chart').classList.toggle('hidden', view !== 'chart');
     document.getElementById('tableContainer').classList.toggle('hidden', view !== 'table');
     if (view === 'table') generateTable();
+    if (view === 'chart') Plotly.Plots.resize('chart');
 }
 
 function calculateMetrics(data) {
@@ -490,18 +495,141 @@ function updateChart() {
     }, { responsive: true });
 }
 
+let tableSortCol = null;
+let tableSortAsc = true;
+
 function generateTable() {
     const selectedIndices = getSelectedStoreIndices();
-    let html = '<table><thead><tr><th>Магазин</th><th>Недель</th><th>Выручка (1 нед)</th><th>Выручка (посл.)</th><th>Рост (%)</th><th>Всего</th></tr></thead><tbody>';
+    const metric = document.getElementById('metric').value;
+    const metrics = calculateMetrics(weeklySalesData.data);
+    const metricData = metrics[metric];
+    const metricLabels = {revenue:'Выручка',growth_pct:'Рост к пред. неделе (%)',growth_index:'Индекс роста (%)',cumulative:'Кумулятивная сумма',moving_avg:'Скользящее среднее (4 нед)'};
+    const metricLabel = metricLabels[metric];
+    let weekFrom = parseInt(document.getElementById('weekFrom').value) || 0;
+    let weekTo = parseInt(document.getElementById('weekTo').value) || weeklySalesData.weeks.length - 1;
+
+    const rows = [];
     selectedIndices.forEach(idx => {
         const store = weeklySalesData.stores[idx];
-        const revenue = weeklySalesData.data[idx];
-        const valid = revenue.filter(v => v !== null);
-        const first = valid[0] || 0, last = valid[valid.length - 1] || 0;
-        const growth = first > 0 ? Math.round((last / first - 1) * 100) : 0;
-        html += `<tr><td>${store}</td><td>${valid.length}</td><td>${first.toLocaleString('ru-RU')}</td><td>${last.toLocaleString('ru-RU')}</td><td style="color:${growth >= 0 ? 'green' : 'red'}">${growth > 0 ? '+' : ''}${growth}%</td><td>${valid.reduce((a, b) => a + b, 0).toLocaleString('ru-RU')}</td></tr>`;
+        const color = getStoreColor(store);
+        const allValues = [];
+        let bestWeek = null, worstWeek = null, bestVal = -Infinity, worstVal = Infinity;
+        for (let j = weekFrom; j <= weekTo; j++) {
+            const v = metricData[idx]?.[j];
+            if (v !== null && v !== undefined && !isNaN(v)) {
+                allValues.push(v);
+                if (v > bestVal) { bestVal = v; bestWeek = j + 1; }
+                if (v < worstVal) { worstVal = v; worstWeek = j + 1; }
+            }
+        }
+        if (allValues.length === 0) return;
+        const first = allValues[0], last = allValues[allValues.length - 1];
+        const growth = first !== 0 ? ((last / first - 1) * 100) : 0;
+        const sum = allValues.reduce((a, b) => a + b, 0);
+        const mean = sum / allValues.length;
+        const sorted = [...allValues].sort((a, b) => a - b);
+        const median = sorted.length % 2 === 1 ? sorted[Math.floor(sorted.length / 2)] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+        const min = sorted[0], max = sorted[sorted.length - 1];
+
+        let slope = 0, r2 = 0;
+        if (allValues.length >= 2) {
+            const xArr = allValues.map((_, i) => i);
+            const reg = linearRegression(xArr, allValues);
+            if (reg) { slope = reg.slope; r2 = reg.r2; }
+        }
+
+        rows.push({ store, color, weeks: allValues.length, first, last, growth, mean, median, min, max, sum, slope, r2, bestWeek, worstWeek });
     });
+
+    if (tableSortCol !== null) {
+        rows.sort((a, b) => {
+            const va = a[tableSortCol], vb = b[tableSortCol];
+            if (typeof va === 'string') return tableSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+            return tableSortAsc ? va - vb : vb - va;
+        });
+    }
+
+    const fmt = v => v !== null && v !== undefined ? Math.round(v).toLocaleString('ru-RU') : '—';
+    const fmt1 = v => v !== null && v !== undefined ? v.toFixed(1) : '—';
+    const fmt2 = v => v !== null && v !== undefined ? v.toFixed(2) : '—';
+    const growthFmt = v => { const s = v > 0 ? '+' : ''; return `<span style="color:${v >= 0 ? '#2e7d32' : '#c62828'}">${s}${v.toFixed(1)}%</span>`; };
+    const trendFmt = v => `<span style="color:${v >= 0 ? '#2e7d32' : '#c62828'}">${v > 0 ? '+' : ''}${fmt(v)}</span>`;
+
+    const cols = [
+        { key: 'store', label: 'Магазин' },
+        { key: 'weeks', label: 'Недель' },
+        { key: 'first', label: 'Первая' },
+        { key: 'last', label: 'Последняя' },
+        { key: 'growth', label: 'Рост (%)' },
+        { key: 'mean', label: 'Средняя' },
+        { key: 'median', label: 'Медиана' },
+        { key: 'min', label: 'Мин' },
+        { key: 'max', label: 'Макс' },
+        { key: 'sum', label: 'Всего' },
+        { key: 'slope', label: 'Тренд/нед' },
+        { key: 'r2', label: 'R²' },
+        { key: 'bestWeek', label: 'Лучш.' },
+        { key: 'worstWeek', label: 'Худш.' }
+    ];
+
+    let html = `<table><thead><tr>`;
+    cols.forEach(c => {
+        const arrow = tableSortCol === c.key ? (tableSortAsc ? ' ▲' : ' ▼') : '';
+        html += `<th onclick="sortTable('${c.key}')">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    rows.forEach(r => {
+        html += `<tr>`;
+        html += `<td><span class="color-dot" style="background:${r.color}"></span>${r.store}</td>`;
+        html += `<td>${r.weeks}</td>`;
+        html += `<td>${fmt(r.first)}</td>`;
+        html += `<td>${fmt(r.last)}</td>`;
+        html += `<td>${growthFmt(r.growth)}</td>`;
+        html += `<td>${fmt(r.mean)}</td>`;
+        html += `<td>${fmt(r.median)}</td>`;
+        html += `<td>${fmt(r.min)}</td>`;
+        html += `<td>${fmt(r.max)}</td>`;
+        html += `<td>${fmt(r.sum)}</td>`;
+        html += `<td>${trendFmt(r.slope)}</td>`;
+        html += `<td>${fmt2(r.r2)}</td>`;
+        html += `<td>${r.bestWeek}</td>`;
+        html += `<td>${r.worstWeek}</td>`;
+        html += `</tr>`;
+    });
+
+    if (rows.length > 1) {
+        const allVals = rows.map(r => r.mean);
+        const totalSum = rows.reduce((s, r) => s + r.sum, 0);
+        const avgMean = allVals.reduce((a, b) => a + b, 0) / allVals.length;
+        const avgMedian = rows.reduce((s, r) => s + r.median, 0) / rows.length;
+        const totalMin = Math.min(...rows.map(r => r.min));
+        const totalMax = Math.max(...rows.map(r => r.max));
+        html += `<tr class="totals-row">`;
+        html += `<td>Итого / Среднее</td>`;
+        html += `<td>—</td>`;
+        html += `<td>—</td>`;
+        html += `<td>—</td>`;
+        html += `<td>—</td>`;
+        html += `<td>${fmt(avgMean)}</td>`;
+        html += `<td>${fmt(avgMedian)}</td>`;
+        html += `<td>${fmt(totalMin)}</td>`;
+        html += `<td>${fmt(totalMax)}</td>`;
+        html += `<td>${fmt(totalSum)}</td>`;
+        html += `<td>—</td>`;
+        html += `<td>—</td>`;
+        html += `<td>—</td>`;
+        html += `<td>—</td>`;
+        html += `</tr>`;
+    }
+
     document.getElementById('tableContainer').innerHTML = html + '</tbody></table>';
+}
+
+function sortTable(col) {
+    if (tableSortCol === col) { tableSortAsc = !tableSortAsc; }
+    else { tableSortCol = col; tableSortAsc = true; }
+    generateTable();
 }
 
 document.addEventListener('DOMContentLoaded', () => { initSelectors(); updateChart(); });
