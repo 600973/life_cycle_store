@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Динамика продаж по неделям</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 24px; }
+        h1 { font-size: 24px; color: #333; margin-bottom: 20px; }
+        
+        .controls-panel { margin-bottom: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef; display: flex; flex-direction: column; gap: 14px; }
+        
+        .controls-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+        
+        .control-group { display: flex; flex-direction: column; gap: 4px; }
+        .control-group label { font-weight: 600; font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        select { padding: 8px 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 13px; background: white; }
+        
+        .stores-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .stores-row .section-label { font-weight: 600; font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 4px; }
+        
+        .checkbox-item { display: flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+        .checkbox-item input { cursor: pointer; }
+        
+        .section-box { border: 1px solid #dee2e6; border-radius: 6px; padding: 10px 14px; }
+        .section-box .section-title { font-weight: 600; font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .section-box .checkbox-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+        
+        .divider { height: 1px; background: #dee2e6; }
+        
+        button { padding: 5px 12px; border: 1px solid #ced4da; border-radius: 6px; background: white; cursor: pointer; font-size: 12px; }
+        button:hover { background: #e9ecef; }
+        .btn-sm { padding: 3px 10px; font-size: 11px; }
+        
+        #chart { width: 100%; height: 550px; }
+        .table-container { overflow-x: auto; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid #e9ecef; }
+        th { background: #f8f9fa; font-weight: 600; cursor: pointer; }
+        th:first-child, td:first-child { text-align: left; }
+        tr:hover { background: #f8f9fa; }
+        .view-switcher { display: flex; gap: 8px; margin-bottom: 16px; }
+        .view-btn { padding: 8px 16px; border: 1px solid #ced4da; border-radius: 6px; background: white; cursor: pointer; }
+        .view-btn.active { background: #1f77b4; color: white; border-color: #1f77b4; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Динамика продаж по неделям</h1>
+        
+        <div class="controls-panel">
+            <!-- Строка 1: Метрика и диапазон недель -->
+            <div class="controls-row">
+                <div class="control-group">
+                    <label>Метрика</label>
+                    <select id="metric" onchange="updateChart()">
+                        <option value="revenue" selected>Выручка</option>
+                        <option value="growth_pct">Рост к пред. неделе (%)</option>
+                        <option value="growth_index">Индекс роста (%)</option>
+                        <option value="cumulative">Кумулятивная сумма</option>
+                        <option value="moving_avg">Скользящее среднее (4 нед)</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Недели с</label>
+                    <select id="weekFrom" onchange="onWeekFromChange()"></select>
+                </div>
+                <div class="control-group">
+                    <label>по</label>
+                    <select id="weekTo" onchange="updateChart()"></select>
+                </div>
+            </div>
+            
+            <!-- Строка 2: Магазины чекбоксами -->
+            <div class="stores-row">
+                <span class="section-label">Магазины:</span>
+                <div id="storesCheckboxes"></div>
+                <button class="btn-sm" onclick="selectAllStores()">Все</button>
+                <button class="btn-sm" onclick="clearStores()">Сброс</button>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <!-- Строка 3: Показатели в рамке -->
+            <div class="section-box">
+                <div class="section-title">Показатели</div>
+                <div class="checkbox-row">
+                    <label class="checkbox-item"><input type="checkbox" id="showMean" checked onchange="updateChart()"> Средняя</label>
+                    <label class="checkbox-item"><input type="checkbox" id="showMedian" onchange="updateChart()"> Медиана</label>
+                    <label class="checkbox-item"><input type="checkbox" id="showCorridor" onchange="updateChart()"> Коридор min-max</label>
+                    <label class="checkbox-item"><input type="checkbox" id="showTrend" onchange="updateChart()"> Линии тренда</label>
+                    <label class="checkbox-item"><input type="checkbox" id="showLabels" onchange="updateChart()"> Значения</label>
+                    <label class="checkbox-item"><input type="checkbox" id="alignRight" onchange="updateChart()"> Выравнивание справа</label>
+                </div>
+            </div>
+        </div>
+        
+        <div class="view-switcher">
+            <button class="view-btn active" onclick="showView('chart', this)">График</button>
+            <button class="view-btn" onclick="showView('table', this)">Таблица</button>
+        </div>
+        <div id="chart"></div>
+        <div id="tableContainer" class="table-container hidden"></div>
+    </div>
+
+<script>
+const weeklySalesData = {
+    stores: ["Магазин 1", "Магазин 2", "Магазин 3", "Магазин 4", "Магазин 5"],
+    weeks: ["Неделя 1", "Неделя 2", "Неделя 3", "Неделя 4", "Неделя 5", "Неделя 6", "Неделя 7", "Неделя 8", "Неделя 9", "Неделя 10", "Неделя 11", "Неделя 12", "Неделя 13", "Неделя 14", "Неделя 15"],
+    data: [[61185.0, 69389.0, 66336.0, 63119.0, 78146.0, 60630.0, 65842.0, 72851.0, 95955.0, 84195.0, 67401.0, 78178.0, 93721.0, 91653.0, 76634.0], [126553.0, 144333.0, 141448.0, 140672.0, 139609.0, 145892.0, 150916.0, 153482.0, 147060.0, 144001.0, 150789.0, 153038.0, 152191.0, 163644.0, 172813.0], [115508.0, 114687.0, 128379.0, 121705.0, 119327.0, 133955.0, 128747.0, 132433.0, 139654.0, 126330.0, 146457.0, 133631.0, null, null, null], [82801.0, 98191.0, 90834.0, 97433.0, 97112.0, 95815.0, 103626.0, 107940.0, 112745.0, 92246.0, null, null, null, null, null], [136488.0, 130733.0, 126569.0, 140740.0, 128291.0, 122064.0, 144469.0, null, null, null, null, null, null, null, null]]
+};
+
+const COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf','#aec7e8','#ffbb78','#98df8a','#ff9896','#c5b0d5'];
+
+function getSelectedStoreIndices() {
+    return Array.from(document.querySelectorAll('#storesCheckboxes input[type="checkbox"]:checked')).map(cb => parseInt(cb.value));
+}
+
+function initSelectors() {
+    const container = document.getElementById('storesCheckboxes');
+    const weekFromSelect = document.getElementById('weekFrom');
+
+    container.innerHTML = '';
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.gap = '14px';
+    row.style.flexWrap = 'wrap';
+    weeklySalesData.stores.forEach((store, idx) => {
+        const lbl = document.createElement('label');
+        lbl.className = 'checkbox-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = idx;
+        cb.checked = idx < 5;
+        cb.onchange = updateChart;
+        lbl.appendChild(cb);
+        lbl.appendChild(document.createTextNode(' ' + store));
+        row.appendChild(lbl);
+    });
+    container.appendChild(row);
+
+    weekFromSelect.innerHTML = '';
+    weeklySalesData.weeks.forEach((week, idx) => {
+        weekFromSelect.innerHTML += `<option value="${idx}">${week}</option>`;
+    });
+    weekFromSelect.value = 0;
+    updateWeekToOptions();
+}
+
+function onWeekFromChange() {
+    updateWeekToOptions();
+    updateChart();
+}
+
+function updateWeekToOptions() {
+    const weekFromSelect = document.getElementById('weekFrom');
+    const weekToSelect = document.getElementById('weekTo');
+    const fromIdx = parseInt(weekFromSelect.value) || 0;
+    const prevTo = parseInt(weekToSelect.value);
+
+    weekToSelect.innerHTML = '';
+    for (let i = fromIdx + 1; i < weeklySalesData.weeks.length; i++) {
+        weekToSelect.innerHTML += `<option value="${i}">${weeklySalesData.weeks[i]}</option>`;
+    }
+    if (prevTo > fromIdx && prevTo < weeklySalesData.weeks.length) {
+        weekToSelect.value = prevTo;
+    } else {
+        weekToSelect.value = weeklySalesData.weeks.length - 1;
+    }
+}
+
+function selectAllStores() {
+    document.querySelectorAll('#storesCheckboxes input[type="checkbox"]').forEach(cb => cb.checked = true);
+    updateChart();
+}
+
+function clearStores() {
+    document.querySelectorAll('#storesCheckboxes input[type="checkbox"]').forEach(cb => cb.checked = false);
+    updateChart();
+}
+
+function showView(view, btn) {
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('chart').classList.toggle('hidden', view !== 'chart');
+    document.getElementById('tableContainer').classList.toggle('hidden', view !== 'table');
+    if (view === 'table') generateTable();
+}
+
+function calculateMetrics(data) {
+    const growth_pct = data.map(row => row.map((val, j) => {
+        if (j === 0 || val === null || row[j-1] === null || row[j-1] === 0) return null;
+        return ((val - row[j-1]) / row[j-1]) * 100;
+    }));
+    const growth_index = data.map(row => {
+        const firstVal = row.find(v => v !== null && v > 0);
+        if (!firstVal) return row.map(() => null);
+        return row.map(val => val !== null ? (val / firstVal) * 100 : null);
+    });
+    const cumulative = data.map(row => {
+        let sum = 0;
+        return row.map(val => { if (val !== null) sum += val; return val !== null ? sum : null; });
+    });
+    const moving_avg = data.map(row => row.map((val, j) => {
+        if (j < 3) return null;
+        const w = row.slice(j - 3, j + 1);
+        if (w.some(v => v === null)) return null;
+        return w.reduce((a, b) => a + b, 0) / 4;
+    }));
+    return { revenue: data, growth_pct, growth_index, cumulative, moving_avg };
+}
+
+function getStatsFromMatrix(matrix, size) {
+    const stats = { mean: [], median: [], min: [], max: [] };
+    for (let j = 0; j < size; j++) {
+        const values = [];
+        for (let i = 0; i < matrix.length; i++) {
+            const v = matrix[i][j];
+            if (v !== null && v !== undefined && !isNaN(v)) values.push(v);
+        }
+        if (values.length > 0) {
+            values.sort((a, b) => a - b);
+            stats.mean.push(values.reduce((a, b) => a + b, 0) / values.length);
+            stats.median.push(values.length % 2 === 1 ? values[Math.floor(values.length / 2)] : (values[values.length / 2 - 1] + values[values.length / 2]) / 2);
+            stats.min.push(values[0]);
+            stats.max.push(values[values.length - 1]);
+        } else { stats.mean.push(null); stats.median.push(null); stats.min.push(null); stats.max.push(null); }
+    }
+    return stats;
+}
+
+function linearRegression(x, y) {
+    const n = x.length;
+    if (n < 2) return null;
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (let i = 0; i < n; i++) { sumX += x[i]; sumY += y[i]; sumXY += x[i] * y[i]; sumXX += x[i] * x[i]; }
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+    const yMean = sumY / n;
+    let ssRes = 0, ssTot = 0;
+    for (let i = 0; i < n; i++) { ssRes += (y[i] - (slope * x[i] + intercept)) ** 2; ssTot += (y[i] - yMean) ** 2; }
+    return { slope, intercept, r2: ssTot > 0 ? 1 - ssRes / ssTot : 0 };
+}
+
+function updateChart() {
+    const metric = document.getElementById('metric').value;
+    let weekFrom = parseInt(document.getElementById('weekFrom').value) || 0;
+    let weekTo = parseInt(document.getElementById('weekTo').value) || weeklySalesData.weeks.length - 1;
+    const showMean = document.getElementById('showMean').checked;
+    const showMedian = document.getElementById('showMedian').checked;
+    const showCorridor = document.getElementById('showCorridor').checked;
+    const showTrend = document.getElementById('showTrend').checked;
+    const showLabels = document.getElementById('showLabels').checked;
+    const alignRight = document.getElementById('alignRight').checked;
+    const selectedIndices = getSelectedStoreIndices();
+
+    if (selectedIndices.length === 0) {
+        document.getElementById('chart').innerHTML = '<p style="padding:40px;text-align:center;color:#666;">Выберите магазины</p>';
+        return;
+    }
+
+    const metrics = calculateMetrics(weeklySalesData.data);
+    const metricData = metrics[metric];
+    const metricLabels = {'revenue':'Выручка','growth_pct':'Рост к пред. неделе (%)','growth_index':'Индекс роста (%)','cumulative':'Кумулятивная сумма','moving_avg':'Скользящее среднее (4 нед)'};
+    const metricLabel = metricLabels[metric];
+
+    // Автоматическое выравнивание по ширине
+    let minWeek = weekTo;
+    let maxWeek = weekFrom;
+    selectedIndices.forEach(idx => {
+        for (let j = weekFrom; j <= weekTo; j++) {
+            const val = metricData[idx]?.[j];
+            if (val !== null && val !== undefined && !isNaN(val)) {
+                if (j < minWeek) minWeek = j;
+                if (j > maxWeek) maxWeek = j;
+            }
+        }
+    });
+    if (minWeek <= maxWeek) {
+        weekFrom = minWeek;
+        weekTo = maxWeek;
+    }
+
+    const traces = [];
+    const annotations = [];
+
+    if (alignRight) {
+        const storeShifts = {};
+        let maxLast = 0;
+        selectedIndices.forEach(idx => {
+            let lastValid = -1;
+            for (let j = weekFrom; j <= weekTo; j++) {
+                const val = metricData[idx]?.[j];
+                if (val !== null && val !== undefined && !isNaN(val)) lastValid = j - weekFrom;
+            }
+            if (lastValid >= 0) {
+                storeShifts[idx] = lastValid;
+                if (lastValid > maxLast) maxLast = lastValid;
+            }
+        });
+        
+        Object.keys(storeShifts).forEach(idx => {
+            storeShifts[idx] = maxLast - storeShifts[idx];
+        });
+        
+        const shiftedSize = maxLast + 1;
+        let actualSize = shiftedSize;
+        selectedIndices.forEach(idx => {
+            if (storeShifts[idx] !== undefined) {
+                const row = metricData[idx];
+                for (let j = weekFrom; j <= weekTo; j++) {
+                    const val = row?.[j];
+                    if (val !== null && val !== undefined && !isNaN(val)) {
+                        const newPos = (j - weekFrom) + storeShifts[idx];
+                        if (newPos >= actualSize) actualSize = newPos + 1;
+                    }
+                }
+            }
+        });
+        
+        const shiftedMatrix = [];
+        selectedIndices.forEach(idx => {
+            const row = new Array(actualSize).fill(null);
+            if (storeShifts[idx] !== undefined) {
+                const shift = storeShifts[idx];
+                for (let j = weekFrom; j <= weekTo; j++) {
+                    const val = metricData[idx]?.[j];
+                    if (val !== null && val !== undefined && !isNaN(val)) {
+                        const newPos = (j - weekFrom) + shift;
+                        if (newPos < actualSize) row[newPos] = val;
+                    }
+                }
+            }
+            shiftedMatrix.push(row);
+        });
+        
+        const xAll = [];
+        for (let i = 0; i < actualSize; i++) xAll.push(weekFrom + i + 1);
+        
+        if (showCorridor) {
+            const stats = getStatsFromMatrix(shiftedMatrix, actualSize);
+            traces.push({
+                x: xAll.concat([...xAll].reverse()),
+                y: stats.max.concat([...stats.min].reverse()),
+                fill: 'toself', fillcolor: 'rgba(128,128,128,0.15)',
+                line: { color: 'rgba(128,128,128,0)' },
+                name: 'Коридор min-max', hoverinfo: 'skip'
+            });
+        }
+        
+        selectedIndices.forEach((storeIdx, i) => {
+            if (storeShifts[storeIdx] === undefined) return;
+            const storeName = weeklySalesData.stores[storeIdx];
+            const shift = storeShifts[storeIdx];
+            const color = COLORS[i % COLORS.length];
+            
+            const xStore = [], yStore = [];
+            for (let j = weekFrom; j <= weekTo; j++) {
+                const val = metricData[storeIdx]?.[j];
+                if (val !== null && val !== undefined && !isNaN(val)) {
+                    xStore.push(weekFrom + (j - weekFrom) + shift + 1);
+                    yStore.push(val);
+                }
+            }
+            
+            traces.push({
+                x: xStore, y: yStore, mode: 'lines+markers', name: storeName,
+                line: { color, width: 2 }, marker: { size: 6 },
+                hovertemplate: `<b>${storeName}</b><br>Неделя: %{x}<br>${metricLabel}: %{y:,.0f}<extra></extra>`
+            });
+            
+            if (showTrend && xStore.length >= 2) {
+                const reg = linearRegression(xStore, yStore);
+                if (reg) traces.push({
+                    x: xStore, y: xStore.map(x => reg.slope * x + reg.intercept),
+                    mode: 'lines', name: `${storeName} (тренд)`,
+                    line: { color, width: 1, dash: 'dot' }, showlegend: false
+                });
+            }
+            
+            if (showLabels) {
+                yStore.forEach((y, j) => {
+                    if (y !== null && !isNaN(y)) annotations.push({ x: xStore[j], y, text: Math.round(y).toLocaleString('ru-RU'), showarrow: false, font: { size: 8, color }, yshift: 10 });
+                });
+            }
+        });
+        
+        if (showMean) {
+            const stats = getStatsFromMatrix(shiftedMatrix, actualSize);
+            traces.push({ x: xAll, y: stats.mean, mode: 'lines', name: 'Средняя', line: { color: '#000', width: 3, dash: 'dash' } });
+        }
+        if (showMedian) {
+            const stats = getStatsFromMatrix(shiftedMatrix, actualSize);
+            traces.push({ x: xAll, y: stats.median, mode: 'lines', name: 'Медиана', line: { color: '#E91E63', width: 2, dash: 'dot' } });
+        }
+        
+        var xValues = xAll;
+    } else {
+        const weekIndices = [];
+        for (let i = weekFrom; i <= weekTo; i++) weekIndices.push(i);
+        var xValues = weekIndices.map(i => i + 1);
+
+        if (showCorridor) {
+            const allRows = selectedIndices.map(idx => weekIndices.map(j => metricData[idx]?.[j] ?? null));
+            const stats = getStatsFromMatrix(allRows, weekIndices.length);
+            traces.push({
+                x: xValues.concat([...xValues].reverse()),
+                y: stats.max.concat([...stats.min].reverse()),
+                fill: 'toself', fillcolor: 'rgba(128,128,128,0.15)',
+                line: { color: 'rgba(128,128,128,0)' },
+                name: 'Коридор min-max', hoverinfo: 'skip'
+            });
+        }
+
+        selectedIndices.forEach((storeIdx, i) => {
+            const storeName = weeklySalesData.stores[storeIdx];
+            const yValues = weekIndices.map(j => metricData[storeIdx]?.[j]);
+            const color = COLORS[i % COLORS.length];
+
+            traces.push({
+                x: xValues, y: yValues, mode: 'lines+markers', name: storeName,
+                line: { color, width: 2 }, marker: { size: 6 },
+                hovertemplate: `<b>${storeName}</b><br>Неделя: %{x}<br>${metricLabel}: %{y:,.0f}<extra></extra>`
+            });
+
+            if (showTrend) {
+                const pts = []; yValues.forEach((y, j) => { if (y !== null && !isNaN(y)) pts.push({ x: xValues[j], y }); });
+                if (pts.length >= 2) {
+                    const reg = linearRegression(pts.map(p => p.x), pts.map(p => p.y));
+                    if (reg) traces.push({
+                        x: pts.map(p => p.x), y: pts.map(p => reg.slope * p.x + reg.intercept),
+                        mode: 'lines', name: `${storeName} (тренд)`, line: { color, width: 1, dash: 'dot' }, showlegend: false
+                    });
+                }
+            }
+
+            if (showLabels) {
+                yValues.forEach((y, j) => {
+                    if (y !== null && !isNaN(y)) annotations.push({ x: xValues[j], y, text: Math.round(y).toLocaleString('ru-RU'), showarrow: false, font: { size: 8, color }, yshift: 10 });
+                });
+            }
+        });
+
+        if (showMean) {
+            const allRows = selectedIndices.map(idx => weekIndices.map(j => metricData[idx]?.[j] ?? null));
+            const stats = getStatsFromMatrix(allRows, weekIndices.length);
+            traces.push({ x: xValues, y: stats.mean, mode: 'lines', name: 'Средняя', line: { color: '#000', width: 3, dash: 'dash' } });
+        }
+        if (showMedian) {
+            const allRows = selectedIndices.map(idx => weekIndices.map(j => metricData[idx]?.[j] ?? null));
+            const stats = getStatsFromMatrix(allRows, weekIndices.length);
+            traces.push({ x: xValues, y: stats.median, mode: 'lines', name: 'Медиана', line: { color: '#E91E63', width: 2, dash: 'dot' } });
+        }
+    }
+
+    const titleSuffix = alignRight ? ' (выравнивание справа)' : '';
+    Plotly.newPlot('chart', traces, {
+        title: { text: `Динамика продаж по неделям: ${metricLabel}${titleSuffix}`, font: { size: 18 } },
+        xaxis: { title: 'Неделя работы', dtick: xValues.length <= 24 ? 1 : Math.ceil(xValues.length / 12), gridcolor: '#e9ecef' },
+        yaxis: { title: metricLabel, gridcolor: '#e9ecef', tickformat: ',.0f' },
+        plot_bgcolor: '#f8f9fa', paper_bgcolor: 'white',
+        margin: { l: 80, r: 200, t: 60, b: 60 },
+        legend: { x: 1.02, y: 1, xanchor: 'left', font: { size: 11 } },
+        hovermode: 'x unified', annotations
+    }, { responsive: true });
+}
+
+function generateTable() {
+    const selectedIndices = getSelectedStoreIndices();
+    let html = '<table><thead><tr><th>Магазин</th><th>Недель</th><th>Выручка (1 нед)</th><th>Выручка (посл.)</th><th>Рост (%)</th><th>Всего</th></tr></thead><tbody>';
+    selectedIndices.forEach(idx => {
+        const store = weeklySalesData.stores[idx];
+        const revenue = weeklySalesData.data[idx];
+        const valid = revenue.filter(v => v !== null);
+        const first = valid[0] || 0, last = valid[valid.length - 1] || 0;
+        const growth = first > 0 ? Math.round((last / first - 1) * 100) : 0;
+        html += `<tr><td>${store}</td><td>${valid.length}</td><td>${first.toLocaleString('ru-RU')}</td><td>${last.toLocaleString('ru-RU')}</td><td style="color:${growth >= 0 ? 'green' : 'red'}">${growth > 0 ? '+' : ''}${growth}%</td><td>${valid.reduce((a, b) => a + b, 0).toLocaleString('ru-RU')}</td></tr>`;
+    });
+    document.getElementById('tableContainer').innerHTML = html + '</tbody></table>';
+}
+
+document.addEventListener('DOMContentLoaded', () => { initSelectors(); updateChart(); });
+</script>
+</body>
+</html>
