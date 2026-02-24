@@ -632,7 +632,8 @@ function generateTable() {
     let html = `<table><thead><tr>`;
     cols.forEach(c => {
         const arrow = tableSortCol === c.key ? (tableSortAsc ? ' ▲' : ' ▼') : '';
-        html += `<th onclick="sortTable('${c.key}')">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+        const helpBtn = COL_HELP[c.key] ? ` <span class="help-btn" style="display:inline-flex;font-size:10px;width:16px;height:16px;vertical-align:middle;margin-left:2px;" onclick="event.stopPropagation();showColHelp(this,'${c.key}')">?</span>` : '';
+        html += `<th onclick="sortTable('${c.key}')">${c.label}${helpBtn}<span class="sort-arrow">${arrow}</span></th>`;
     });
     html += '</tr></thead><tbody>';
 
@@ -687,6 +688,35 @@ function sortTable(col) {
     if (tableSortCol === col) { tableSortAsc = !tableSortAsc; }
     else { tableSortCol = col; tableSortAsc = true; }
     generateTable();
+}
+
+const COL_HELP = {
+    growth: 'Процент изменения от первой до последней недели.<br><code>((Последняя / Первая) - 1) × 100%</code>',
+    mean: 'Среднее арифметическое всех значений за выбранный период.',
+    median: 'Значение посередине отсортированного ряда. В отличие от средней, не искажается выбросами.',
+    slope: 'Наклон линейной регрессии — на сколько единиц в среднем растёт (или падает) метрика каждую неделю.',
+    r2: '<b>R²</b> (коэффициент детерминации) — насколько тренд описывает данные.<br><br><b>&lt; 0.3</b> — слабая связь, тренду не доверять<br><b>0.3–0.5</b> — умеренная, тенденция есть, но разброс большой<br><b>0.5–0.7</b> — заметная, тренд достаточно надёжный<br><b>0.7–0.9</b> — сильная, направление уверенное<br><b>&gt; 0.9</b> — данные почти на прямой',
+    bestWeek: 'Номер недели с максимальным значением метрики.',
+    worstWeek: 'Номер недели с минимальным значением метрики.'
+};
+
+function showColHelp(el, key) {
+    let existing = document.getElementById('colHelpTooltip');
+    if (existing) { existing.remove(); if (existing.dataset.key === key) return; }
+    const text = COL_HELP[key];
+    if (!text) return;
+    const tip = document.createElement('div');
+    tip.id = 'colHelpTooltip';
+    tip.dataset.key = key;
+    tip.className = 'metric-tooltip visible';
+    tip.style.position = 'absolute';
+    tip.innerHTML = `<span class="close-tip" onclick="this.parentElement.remove()">&times;</span><p>${text}</p>`;
+    const rect = el.getBoundingClientRect();
+    tip.style.left = (rect.left + window.scrollX) + 'px';
+    tip.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+    document.body.appendChild(tip);
+    const onClickOut = (e) => { if (!tip.contains(e.target) && e.target !== el) { tip.remove(); document.removeEventListener('click', onClickOut); } };
+    setTimeout(() => document.addEventListener('click', onClickOut), 0);
 }
 
 document.addEventListener('DOMContentLoaded', () => { initSelectors(); updateChart(); });
