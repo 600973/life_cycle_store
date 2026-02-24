@@ -220,7 +220,7 @@ function initSelectors() {
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.value = idx;
-        cb.checked = idx < 5;
+        cb.checked = true;
         cb.onchange = updateChart;
         lbl.appendChild(cb);
         lbl.appendChild(document.createTextNode(' ' + store));
